@@ -1,0 +1,7 @@
+# ignore executables
+home_iot
+sensor
+user_console
+
+# ignore pdf
+SO-Porjeto-2022_2023.pdf
