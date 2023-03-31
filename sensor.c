@@ -20,6 +20,7 @@ int main (int argc, char *argv[])
 {
   int min_value, max_value, time_intreval, reading;
   count = 0;
+  // Changing action of SIGTSTP
   struct sigaction ctrlz;
   ctrlz.sa_handler = ctrlz_handler;
   sigfillset(&ctrlz.sa_mask);
