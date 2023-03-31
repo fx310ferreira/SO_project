@@ -4,8 +4,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
+#include "functions.h"
 
-long int count;
+long unsigned int count;
 
 void error(char* error_msg){
   printf("ERROR: %s\n", error_msg);
@@ -13,8 +14,10 @@ void error(char* error_msg){
 }
 
 void ctrlz_handler(){
-  printf("\n%ld messages printed since the start\n", count);
+  printf("\n%lu messages printed since the start\n", count);
 }
+
+
 
 int main (int argc, char *argv[])
 {
@@ -27,13 +30,15 @@ int main (int argc, char *argv[])
   ctrlz.sa_flags = 0;
   sigaction(SIGTSTP, &ctrlz, NULL);
    
-  /* Parater validation*/
+  // Parater validation
   if(argc != 6){
     error("Use format ./sensor {ID} {time interval} {key} {min_val} {max_val}\n");
   }
 
   if(strlen(argv[1]) < 3 || strlen(argv[1]) > 32){
     error("ID size must be between 3 and 32");
+  }else if (!str_validator(argv[1], 0)){
+    error("ID characters must be alphanumeric");
   }
   
 
@@ -43,6 +48,8 @@ int main (int argc, char *argv[])
 
   if(strlen(argv[3]) < 3 || strlen(argv[3]) > 32){
     error("Key size must be between 3 and 32");
+  }else if(!str_validator(argv[3], 1)){
+    error("Key characters must be alphanumeric or '_'");
   }
 
   if(sscanf(argv[4], "%d", &min_value) != 1){
@@ -62,7 +69,7 @@ int main (int argc, char *argv[])
     //Comment and replace for final euvaluation
     printf("%s#%s#%d\n", argv[1], argv[3], reading);
     count ++;
-    sleep(time_intreval); 
+    sleep(time_intreval); //! ctrlz stops the sleep 
   } 
 
   return 0;
