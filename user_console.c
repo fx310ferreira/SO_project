@@ -4,6 +4,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
+#include "functions.h"
 
 void error(char* error_msg){
   printf("ERROR: %s\n", error_msg);
@@ -25,9 +26,17 @@ void add_alert(char *id, char* key){
   int min_value, max_value;
   scanf("%s %s %d %d", id, key, &min_value, &max_value);
   if(strlen(id) < 3 || strlen(id) > 32){
-    //Exit???
-    printf("ID must be between 3 and 32\n");
+    error("ID size must be between 3 and 32");
+  }else if (!str_validator(id, 0)){
+    error("ID characters must be alphanumeric");
   }
+
+  if(strlen(key) < 3 || strlen(key) > 32){
+    error("Key size must be between 3 and 32");
+  }else if(!str_validator(key, 1)){
+    error("Key characters must be alphanumeric or '_'");
+  }
+// missing min and max values
   return;
 }
 
@@ -39,16 +48,15 @@ void list_alerts(){
   return;
 }
 
-int main (int argc, char *argv[])
-{
+int main (int argc, char *argv[]){
   char id[33], key[33];
-  /* Parater validation*/
+  // Parater validation
   if(argc != 2){
     error("Use format ./user_console {console identifier}\n"); //What is this id??
   }
 
   while (strcmp("exit", id) != 0) {
-    scanf(" %s", id);
+    scanf("%s", id);
     if(strcmp("stats", id) == 0){
       stats();
     }else if(strcmp("reset", id) == 0){
