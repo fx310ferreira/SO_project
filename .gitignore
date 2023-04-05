@@ -5,3 +5,6 @@ user_console
 
 # ignore pdf
 *.pdf
+
+#ignore log files
+log.txt
