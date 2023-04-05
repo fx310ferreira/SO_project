@@ -4,7 +4,7 @@ sensor: sensor.c functions.c
 	gcc sensor.c functions.c -Wall -Wextra -g -o sensor
 
 home_iot: sys_manager.c functions.c
-	gcc sys_manager.c functions.c -Wall -Wextra -g  -o home_iot 
+	gcc sys_manager.c functions.c -Wall -Wextra -pthread -g  -o home_iot 
 
 user_console: user_console.c functions.c
 	gcc user_console.c functions.c -Wall -Wextra -g  -o user_console
