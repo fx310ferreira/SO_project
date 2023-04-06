@@ -49,6 +49,8 @@ void error(char *error_msg){
   shmctl(shmid, IPC_RMID, NULL);
   sem_close(shm_sem);
   sem_unlink("SHM_SEM");
+  free(shm->alerts);
+  free(shm->sensors);
   logger("HOME_IOT SIMULATOR CLOSING");
   fclose(log_file);
   sem_close(log_sem);
@@ -128,6 +130,8 @@ void ctrlc_handler(){
   shmctl(shmid, IPC_RMID, NULL);
   sem_close(shm_sem);
   sem_unlink("SHM_SEM");
+  free(shm->alerts);
+  free(shm->sensors);
   logger("HOME_IOT SIMULATOR CLOSING");
   fclose(log_file);
   sem_close(log_sem);
@@ -183,6 +187,13 @@ int main (int argc, char *argv[]){
     error("Not able to create semaphore");
   }
 
+  sem_lock(shm_sem);
+  shm->alerts = malloc(sizeof(alert)*config[4]);
+  shm->sensors = malloc(sizeof(sensor)*config[3]);
+  if(shm->alerts == NULL || shm->sensors == NULL){
+    error("Not able to allocate memory");
+  }
+  sem_unlock(shm_sem);
 
 
   /* Creates the threads */  
