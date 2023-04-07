@@ -192,13 +192,13 @@ int main (int argc, char *argv[]){
     error("Not able to create semaphore");
   }
 
-  sem_lock(shm_sem);
+  sem_wait(shm_sem);
   shm->alerts = malloc(sizeof(alert)*config[4]);
   shm->sensors = malloc(sizeof(sensor)*config[3]);
   if(shm->alerts == NULL || shm->sensors == NULL){
     error("Not able to allocate memory");
   }
-  sem_unlock(shm_sem);
+  sem_post(shm_sem);
 
 
   /* Creates the threads */  
