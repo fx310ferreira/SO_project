@@ -1,3 +1,6 @@
+#  Frederico Ferreira 2021217116
+#  Nuno Carvalho do Nascimento 2020219249
+
 all: sensor home_iot user_console
 
 sensor: sensor.c functions.c

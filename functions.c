@@ -1,3 +1,8 @@
+/*
+  Frederico Ferreira 2021217116
+  Nuno Carvalho do Nascimento 2020219249
+*/
+
 #include <string.h>
 
 int str_validator(char* str, int under_score){

@@ -1,3 +1,8 @@
+/*
+  Frederico Ferreira 2021217116
+  Nuno Carvalho do Nascimento 2020219249
+*/
+
 #ifndef STRUCTS_H
 #define STRUCTS_H
 
