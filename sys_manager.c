@@ -184,6 +184,7 @@ int main (int argc, char *argv[]){
     error("Use format: ./home_io <file_name>");
   }
 
+  // Initialize the signal handler
   struct sigaction ctrlc;
   ctrlc.sa_handler = ctrlc_handler;
   sigfillset(&ctrlc.sa_mask);
