@@ -4,19 +4,19 @@
 */
 
 #include <stdio.h>
-#include <sys/wait.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
 #include <semaphore.h>
-#include <sys/types.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include "structs.h"
 #include <sys/shm.h>
 #include <sys/ipc.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 /* Variables read from file 0: QUEUE_SZ, 1: N_WORKERS, 2: MAX_KEYS, 3: MAX_SENSORS, 4: MAX_ALERTS */
 int config[5];
@@ -25,7 +25,7 @@ FILE *log_file;
 pthread_t sensor_reader_t, console_reader_t, dispatcher_t;
 sem_t *log_sem, *shm_sem;
 shared_memory *shm;
-int shmid;
+int shmid = 0;
 
 /* Fucntion that is responsible for writing logs */
 void logger(char *message){
@@ -40,9 +40,10 @@ void logger(char *message){
 
 /* Function to handle errors*/
 void error(char *error_msg){
-  logger("HOME_IOT SIMULATOR FREEING RESOURCES");
   // add logger to print error message
   printf("ERROR: %s\n", error_msg);
+
+  logger("HOME_IOT SIMULATOR FREEING RESOURCES");
 
   if(config_file != NULL){
     fclose(config_file);
@@ -50,12 +51,16 @@ void error(char *error_msg){
   pthread_join(sensor_reader_t, NULL);
   pthread_join(console_reader_t, NULL);
   pthread_join(dispatcher_t, NULL);
-  shmdt(shm);
-  shmctl(shmid, IPC_RMID, NULL);
-  sem_close(shm_sem);
-  sem_unlink("SHM_SEM");
-  free(shm->alerts);
-  free(shm->sensors);
+  if(shmid != 0){
+    if(shm != NULL){
+      free(shm->alerts);
+      free(shm->sensors);
+    }
+    shmdt(shm);
+    shmctl(shmid, IPC_RMID, NULL);
+    sem_close(shm_sem);
+    sem_unlink("SHM_SEM");
+  }
   logger("HOME_IOT SIMULATOR CLOSING");
   fclose(log_file);
   sem_close(log_sem);
@@ -115,7 +120,8 @@ void read_config_file(char *file_name){
 }
 
 void ctrlc_handler(){
-  // int i;
+  int i;
+
   printf("\n");
   logger("SIGNAL SIGINT RECEIVED");
   logger("HOME_IOT SIMULATOR FREEING RESOURCES");
@@ -124,19 +130,24 @@ void ctrlc_handler(){
     fclose(config_file);
   }
 
-  // for (i = 0; i < config[1]; i++) {
-  //   wait(NULL);
-  // }
-
   pthread_join(sensor_reader_t, NULL);
   pthread_join(console_reader_t, NULL);
   pthread_join(dispatcher_t, NULL);
-  shmdt(shm);
-  shmctl(shmid, IPC_RMID, NULL);
-  sem_close(shm_sem);
-  sem_unlink("SHM_SEM");
-  free(shm->alerts);
-  free(shm->sensors);
+  for (i = 0; i < config[1]; i++) {
+    wait(NULL);
+  }
+  if(shmid != 0){
+    sem_wait(shm_sem);
+    if(shm != NULL){
+      free(shm->alerts);
+      free(shm->sensors);
+    }
+    sem_post(shm_sem);
+    shmdt(shm);
+    shmctl(shmid, IPC_RMID, NULL);
+    sem_close(shm_sem);
+    sem_unlink("SHM_SEM");
+  }
   logger("HOME_IOT SIMULATOR CLOSING");
   fclose(log_file);
   sem_close(log_sem);
@@ -164,6 +175,8 @@ void log_initializer(){
 
 int main (int argc, char *argv[]){
   int i, pid;
+  sem_unlink("SHM_SEM");
+  sem_unlink("LOG_SEM");
 
   log_initializer();
   
@@ -200,20 +213,6 @@ int main (int argc, char *argv[]){
   }
   sem_post(shm_sem);
 
-
-  /* Creates the threads */  
-  if(pthread_create(&sensor_reader_t, NULL, sensor_reader, NULL) != 0){
-    error("Not able to create thread sensor_reader");
-  }
-  if(pthread_create(&console_reader_t, NULL, console_reader, NULL) != 0){
-    error("Not able to create thread console_reader");
-  }
-  if (pthread_create(&dispatcher_t, NULL, dispatcher, NULL) != 0){
-    error("Not able to create thread dispatcher");
-  }
-
-  sleep(1);
-  
   //Create workers
   for (i = 0; i < config[1]+1; i++) {
     pid = fork();
@@ -229,13 +228,20 @@ int main (int argc, char *argv[]){
     }
   }
 
-  for (i = 0; i < config[1]; i++) { //Change to sigint
-    wait(NULL);
+  /* Creates the threads */  
+  if(pthread_create(&sensor_reader_t, NULL, sensor_reader, NULL) != 0){
+    error("Not able to create thread sensor_reader");
+  }
+  if(pthread_create(&console_reader_t, NULL, console_reader, NULL) != 0){
+    error("Not able to create thread console_reader");
+  }
+  if (pthread_create(&dispatcher_t, NULL, dispatcher, NULL) != 0){
+    error("Not able to create thread dispatcher");
   }
 
   logger("HOME_IOT SIMULATOR WATING");
 
-  pause(); // wait for signal
+  pause();
 
   return 0;
 }
