@@ -1,3 +1,8 @@
+/*
+  Frederico Ferreira 2021217116
+  Nuno Carvalho do Nascimento 2020219249
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
