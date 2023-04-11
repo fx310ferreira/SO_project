@@ -27,7 +27,7 @@ sem_t *log_sem, *shm_sem;
 shared_memory *shm;
 int shmid = 0;
 
-/* Fucntion that is responsible for writing logs */
+/* Function that is responsible for writing logs */
 void logger(char *message){
   time_t now = time(NULL);
   struct tm *date_time = localtime(&now);
