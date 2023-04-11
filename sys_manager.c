@@ -33,7 +33,7 @@ void logger(char *message){
   struct tm *date_time = localtime(&now);
   sem_wait(log_sem);
   printf("%02d:%02d:%02d %s\n", date_time->tm_hour, date_time->tm_min, date_time->tm_sec, message);
-  fprintf(log_file, "%4d/%02d/%02d %02d:%02d:%02d %s\n", date_time->tm_year+1900, date_time->tm_mon, date_time->tm_mday, date_time->tm_hour, date_time->tm_min, date_time->tm_sec, message);
+  fprintf(log_file, "%4d/%02d/%02d %02d:%02d:%02d %s\n", date_time->tm_year+1900, date_time->tm_mon+1, date_time->tm_mday, date_time->tm_hour, date_time->tm_min, date_time->tm_sec, message);
   fflush(log_file);
   sem_post(log_sem);
 }
