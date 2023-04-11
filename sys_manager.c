@@ -175,8 +175,6 @@ void log_initializer(){
 
 int main (int argc, char *argv[]){
   int i, pid;
-  sem_unlink("SHM_SEM");
-  sem_unlink("LOG_SEM");
 
   log_initializer();
   
