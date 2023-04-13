@@ -25,7 +25,7 @@ typedef struct sensor{
     char key[33];
     int min;
     int max;
-    int avg;
+    int sum;
     int count;
 }sensor;
 
