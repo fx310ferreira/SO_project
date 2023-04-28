@@ -110,6 +110,7 @@ void signal_setup(){
   sigpipe.sa_handler = sigpipe_handler;
   sigfillset(&sigpipe.sa_mask);
   sigpipe.sa_flags = 0;
+  sigaction(SIGPIPE, &sigpipe, NULL);
 }
 
 int main (int argc, char *argv[]){
