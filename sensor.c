@@ -25,16 +25,41 @@ void ctrlz_handler(){
   printf("\n%lu messages printed since the start\n", count);
 }
 
-void ctrlc_handler(){
-  printf("\nSIGINT received\n");
+void cleanup(){
   close(fd_sensor);
   exit(0);
 }
 
+void ctrlc_handler(){
+  printf("\nSIGINT received\n");
+  cleanup();
+}
+
 void sigpipe_handler(){
   printf("Error writing to pipe\n");
-  close(fd_sensor);
-  exit(0);
+  cleanup();
+}
+
+void signal_setup(){
+  // Changing action of SIGTSTP
+  struct sigaction ctrlz;
+  ctrlz.sa_handler = ctrlz_handler;
+  sigfillset(&ctrlz.sa_mask);
+  ctrlz.sa_flags = 0;
+  sigaction(SIGTSTP, &ctrlz, NULL);
+
+  // Changing action of SIGINT
+  struct sigaction ctrlc;
+  ctrlc.sa_handler = ctrlc_handler;
+  sigfillset(&ctrlc.sa_mask);
+  ctrlc.sa_flags = 0;
+  sigaction(SIGINT, &ctrlc, NULL);
+
+  // Changing action of SIGPIPE
+  struct sigaction sigpipe;
+  sigpipe.sa_handler = sigpipe_handler;
+  sigfillset(&sigpipe.sa_mask);
+  sigpipe.sa_flags = 0;
 }
 
 int main (int argc, char *argv[])
@@ -77,25 +102,8 @@ int main (int argc, char *argv[])
     error("Min value must be smaller than max value");
   }
 
-  // Changing action of SIGTSTP
-  struct sigaction ctrlz;
-  ctrlz.sa_handler = ctrlz_handler;
-  sigfillset(&ctrlz.sa_mask);
-  ctrlz.sa_flags = 0;
-  sigaction(SIGTSTP, &ctrlz, NULL);
+  signal_setup();
 
-  // Changing action of SIGTSTP
-  struct sigaction ctrlc;
-  ctrlc.sa_handler = ctrlc_handler;
-  sigfillset(&ctrlc.sa_mask);
-  ctrlc.sa_flags = 0;
-  sigaction(SIGINT, &ctrlc, NULL);
-
-  struct sigaction sigpipe;
-  sigpipe.sa_handler = sigpipe_handler;
-  sigfillset(&sigpipe.sa_mask);
-  sigpipe.sa_flags = 0;
- 
   srand(time(NULL));
 
   if ((fd_sensor = open("SENSOR_PIPE", O_WRONLY)) < 0) {

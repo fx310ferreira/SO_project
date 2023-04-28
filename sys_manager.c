@@ -52,6 +52,10 @@ void error(char *error_msg){
   if(config_file != NULL){
     fclose(config_file);
   }
+  //! SHOULD I USE pthread_kill(****, SIGKILL)
+  pthread_cancel(sensor_reader_t);
+  pthread_cancel(console_reader_t);
+  pthread_cancel(dispatcher_t);
   pthread_join(sensor_reader_t, NULL);
   pthread_join(console_reader_t, NULL);
   pthread_join(dispatcher_t, NULL);
@@ -102,18 +106,9 @@ void *sensor_reader(){
     if(select(fd_sensor+1, &read_fd, NULL, NULL, NULL)<0){
       error("selecting SENSOR_PIPE");
     }
-
-    if(FD_ISSET(fd_sensor, &read_fd)){
-      do{
-        n = read(fd_sensor, &message, sizeof(message));
-        if(n > 0){
-          message[n] = '\0';
-          logger(message); //! change to add to quque and write when queue is full
-        }
-      }while (n > 0);
-      close(fd_sensor);
-      fd_sensor = open("SENSOR_PIPE", O_RDONLY|O_NONBLOCK);
-    }
+    n = read(fd_sensor, &message, sizeof(message));
+    message[n] = '\0';
+    logger(message); //! change to add to quque and write when queue is full
 
   }
   logger("THREAD SENSOR_READER EXITING");
@@ -122,30 +117,20 @@ void *sensor_reader(){
 
 void *console_reader(){
   char message[256];
+  command_t command;
   fd_set read_fd;
-  int n;
 
   logger("THREAD CONSOLE_READER CREATED");
 
   while (1){
     FD_ZERO(&read_fd);
-    FD_SET(fd_sensor, &read_fd);
-
+    FD_SET(fd_console, &read_fd);
     if(select(fd_console+1, &read_fd, NULL, NULL, NULL)<0){
       error("selecting CONSOLE_PIPE");
     }
-
-    if(FD_ISSET(fd_console, &read_fd)){
-      do{
-        n = read(fd_console, &message, sizeof(message));
-        if(n > 0){
-          message[n] = '\0';
-          logger(message); //! change to add to quque and write when queue is full
-        }
-      }while (n > 0);
-      close(fd_console);
-      fd_console = open("CONSOLE_PIPE", O_RDONLY|O_NONBLOCK);
-    }
+    read(fd_console, &command, sizeof(command_t));
+    sprintf(message, "COMMAND RECEIVED: %s ID: %s KEY: %s", command.cmd, command.alert.id, command.alert.key);
+    logger(message); //! change to add to quque and write when queue is full
   }
   logger("THREAD CONSOLE_READER EXITING");
   pthread_exit(NULL);
@@ -182,7 +167,7 @@ void pipes_initializer(){
     error("creating SENSOR_PIPE");
   }
 
-  if ((fd_sensor = open("SENSOR_PIPE", O_RDONLY|O_NONBLOCK))<0){
+  if ((fd_sensor = open("SENSOR_PIPE", O_RDWR))<0){
     error("opening SENSOR_PIPE");
   }
 
@@ -190,7 +175,7 @@ void pipes_initializer(){
     error("creating CONSOLE_PIPE");
   }
 
-  if((fd_console = open("CONSOLE_PIPE", O_RDONLY|O_NONBLOCK))<0){
+  if((fd_console = open("CONSOLE_PIPE", O_RDWR))<0){
     error("opening CONSOLE_PIPE");
   }
 
