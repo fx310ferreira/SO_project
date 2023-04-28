@@ -12,6 +12,7 @@
 #include "functions.h"
 
 long unsigned int count;
+int t = 0;
 
 void error(char* error_msg){
   printf("ERROR: %s\n", error_msg);
@@ -21,8 +22,6 @@ void error(char* error_msg){
 void ctrlz_handler(){
   printf("\n%lu messages printed since the start\n", count);
 }
-
-
 
 int main (int argc, char *argv[])
 {
@@ -70,11 +69,12 @@ int main (int argc, char *argv[])
   }
   srand(time(NULL));
   while (1) {
+    sleep(t);
     reading = rand()%(max_value-min_value+1)+min_value;
     //Comment and replace for final euvaluation
     printf("%s#%s#%d\n", argv[1], argv[3], reading);
     count ++;
-    sleep(time_intreval); //! ctrlz stops the sleep 
+    t = sleep(time_intreval); //! ctrlz stops the sleep 
   } 
 
   return 0;
