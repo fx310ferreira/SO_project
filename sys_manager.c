@@ -261,7 +261,7 @@ int main (int argc, char *argv[]){
   read_config_file(argv[1]);
 
   /* Creates the shared memory */
-  shmid = shmget(IPC_PRIVATE, sizeof(alert)*config[4] +sizeof(sensor)*config[3], IPC_CREAT | 0777); //! put headers
+  shmid = shmget(IPC_PRIVATE, sizeof(shared_memory)+sizeof(alert)*config[4] +sizeof(sensor)*config[3], IPC_CREAT | 0777); //! put headers
   if(shmid == -1){
     error("Not able to create shared memory");
   }
