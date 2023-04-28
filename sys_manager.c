@@ -12,11 +12,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include "structs.h"
 #include <sys/shm.h>
 #include <sys/ipc.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/select.h>
+#include "structs.h"
 
 /* Variables read from file 0: QUEUE_SZ, 1: N_WORKERS, 2: MAX_KEYS, 3: MAX_SENSORS, 4: MAX_ALERTS */
 int config[5];
@@ -25,7 +27,9 @@ FILE *log_file;
 pthread_t sensor_reader_t, console_reader_t, dispatcher_t;
 sem_t *log_sem, *shm_sem;
 shared_memory *shm;
-int shmid = 0;
+int fd_sensor, fd_console;
+int shmid = 0, parent_pid;
+
 
 /* Function that is responsible for writing logs */
 void logger(char *message){
@@ -68,6 +72,9 @@ void error(char *error_msg){
   exit(1);
 }
 
+
+//! fazer com que os worker parem de trabalhar usar
+//! fechar a pipe par eles pararem
 void worker(int num){
   char message[256];
   sprintf(message, "WORKER %d READY", num);
@@ -82,13 +89,64 @@ void alert_watcher(){
 }
 
 void *sensor_reader(){
-  logger("THREAD SENSOR_READER CREATED");
+  char message[256];
+  fd_set read_fd;
+  int n;
+
+  logger("THREAD SENSOR_READER CREATED");   
+
+  while (1){
+    FD_ZERO(&read_fd);
+    FD_SET(fd_sensor, &read_fd);
+
+    if(select(fd_sensor+1, &read_fd, NULL, NULL, NULL)<0){
+      error("selecting SENSOR_PIPE");
+    }
+
+    if(FD_ISSET(fd_sensor, &read_fd)){
+      do{
+        n = read(fd_sensor, &message, sizeof(message));
+        if(n > 0){
+          message[n] = '\0';
+          logger(message); //! change to add to quque and write when queue is full
+        }
+      }while (n > 0);
+      close(fd_sensor);
+      fd_sensor = open("SENSOR_PIPE", O_RDONLY|O_NONBLOCK);
+    }
+
+  }
   logger("THREAD SENSOR_READER EXITING");
   pthread_exit(NULL);
 } 
 
 void *console_reader(){
+  char message[256];
+  fd_set read_fd;
+  int n;
+
   logger("THREAD CONSOLE_READER CREATED");
+
+  while (1){
+    FD_ZERO(&read_fd);
+    FD_SET(fd_sensor, &read_fd);
+
+    if(select(fd_console+1, &read_fd, NULL, NULL, NULL)<0){
+      error("selecting CONSOLE_PIPE");
+    }
+
+    if(FD_ISSET(fd_console, &read_fd)){
+      do{
+        n = read(fd_console, &message, sizeof(message));
+        if(n > 0){
+          message[n] = '\0';
+          logger(message); //! change to add to quque and write when queue is full
+        }
+      }while (n > 0);
+      close(fd_console);
+      fd_console = open("CONSOLE_PIPE", O_RDONLY|O_NONBLOCK);
+    }
+  }
   logger("THREAD CONSOLE_READER EXITING");
   pthread_exit(NULL);
 }
@@ -119,40 +177,62 @@ void read_config_file(char *file_name){
   config_file = NULL;
 }
 
+void pipes_initializer(){
+  if ((mkfifo("SENSOR_PIPE", O_CREAT|O_EXCL|0600)<0) && (errno!= EEXIST)){
+    error("creating SENSOR_PIPE");
+  }
+
+  if ((fd_sensor = open("SENSOR_PIPE", O_RDONLY|O_NONBLOCK))<0){
+    error("opening SENSOR_PIPE");
+  }
+
+  if ((mkfifo("CONSOLE_PIPE", O_CREAT|O_EXCL|0600)<0) && (errno!= EEXIST)){
+    error("creating CONSOLE_PIPE");
+  }
+
+  if((fd_console = open("CONSOLE_PIPE", O_RDONLY|O_NONBLOCK))<0){
+    error("opening CONSOLE_PIPE");
+  }
+
+}
+
 void ctrlc_handler(){
   int i;
-
-  printf("\n");
-  logger("SIGNAL SIGINT RECEIVED");
-  logger("HOME_IOT SIMULATOR FREEING RESOURCES");
-  
-  if(config_file != NULL){
-    fclose(config_file);
-  }
-
-  pthread_join(sensor_reader_t, NULL);
-  pthread_join(console_reader_t, NULL);
-  pthread_join(dispatcher_t, NULL);
-  for (i = 0; i < config[1]; i++) {
-    wait(NULL);
-  }
-  if(shmid != 0){
-    sem_wait(shm_sem);
-    if(shm != NULL){
-      free(shm->alerts);
-      free(shm->sensors);
+  if(getpid() == parent_pid){
+    printf("\n");
+    logger("SIGNAL SIGINT RECEIVED");
+    logger("HOME_IOT SIMULATOR FREEING RESOURCES");
+    
+    if(config_file != NULL){
+      fclose(config_file);
     }
-    sem_post(shm_sem);
-    shmdt(shm);
-    shmctl(shmid, IPC_RMID, NULL);
-    sem_close(shm_sem);
-    sem_unlink("SHM_SEM");
+    pthread_cancel(sensor_reader_t);
+    pthread_cancel(console_reader_t);
+    pthread_cancel(dispatcher_t);
+    pthread_join(sensor_reader_t, NULL);
+    pthread_join(console_reader_t, NULL);
+    pthread_join(dispatcher_t, NULL);
+    for (i = 0; i < config[1]; i++) {
+      wait(NULL);
+    }
+
+    if(shmid != 0){
+      sem_post(shm_sem);
+      shmdt(shm);
+      shmctl(shmid, IPC_RMID, NULL);
+      sem_close(shm_sem);
+      sem_unlink("SHM_SEM");
+    }
+    close(fd_sensor);
+    close(fd_console);
+    unlink("SENSOR_PIPE");
+    unlink("CONSOLE_PIPE");
+    logger("HOME_IOT SIMULATOR CLOSING");
+    fclose(log_file);
+    sem_close(log_sem);
+    sem_unlink("LOG_SEM");
+    exit(0);
   }
-  logger("HOME_IOT SIMULATOR CLOSING");
-  fclose(log_file);
-  sem_close(log_sem);
-  sem_unlink("LOG_SEM");
-  exit(0);
 }
 
 /* Open the log.txt file, gives as error if it is not possible*/
@@ -176,6 +256,8 @@ void log_initializer(){
 int main (int argc, char *argv[]){
   int i, pid;
 
+  parent_pid = getpid();
+
   log_initializer();
   
   if(argc != 2){
@@ -194,7 +276,7 @@ int main (int argc, char *argv[]){
   read_config_file(argv[1]);
 
   /* Creates the shared memory */
-  shmid = shmget(IPC_PRIVATE, sizeof(shared_memory), IPC_CREAT | 0777);
+  shmid = shmget(IPC_PRIVATE, sizeof(alert)*config[4] +sizeof(sensor)*config[3], IPC_CREAT | 0777); //! put headers
   if(shmid == -1){
     error("Not able to create shared memory");
   }
@@ -204,13 +286,11 @@ int main (int argc, char *argv[]){
     error("Not able to create semaphore");
   }
 
-  sem_wait(shm_sem);
-  shm->alerts = malloc(sizeof(alert)*config[4]);
-  shm->sensors = malloc(sizeof(sensor)*config[3]);
-  if(shm->alerts == NULL || shm->sensors == NULL){
-    error("Not able to allocate memory");
-  }
-  sem_post(shm_sem);
+  //Pointing to sahred memory
+  shm->alerts = (alert*)(((void*)shm) + sizeof(shared_memory));
+  shm->sensors = (sensor*)(((void*)shm->alerts) + sizeof(alert)*config[4]); //! change this
+  
+  pipes_initializer();
 
   //Create workers
   for (i = 0; i < config[1]+1; i++) {
