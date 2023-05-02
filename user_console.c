@@ -14,6 +14,7 @@
 #include "structs.h"
 
 int fd_console;
+int console_id;
 
 void cleanup(){
   close(fd_console);
@@ -60,6 +61,7 @@ void add_alert(command_t* command, char* cmd){
 
   command->alert.min = min_value;
   command->alert.max = max_value;
+  command->alert.console_id = console_id;
   strcpy(command->alert.id, id);
   strcpy(command->alert.key, key);
 
@@ -115,7 +117,6 @@ void signal_setup(){
 
 int main (int argc, char *argv[]){
   char cmd[33];
-  int console_id = 0;
   command_t command;
   // Parater validation
   if(argc != 2){

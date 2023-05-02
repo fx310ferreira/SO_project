@@ -8,16 +8,10 @@
 
 #define STR 33
 
-typedef struct INTERNAL_QUEUE{
-  int key;
-  int sensor_id;
-  int value;
-  struct INTERNAL_QUEUE *next;
-} INTERNAL_QUEUE;
-
 typedef struct alert{
     char id[STR];
     char key[STR];
+    int console_id;
     int min;
     int max;
 }alert;
@@ -44,5 +38,23 @@ typedef struct command_t{
   char cmd[STR];
   alert alert;
 }command_t;
+
+typedef struct alert_node{ // Node for the internal queue
+    command_t command;
+    struct alert_node *next;
+}alert_node;
+
+typedef struct sensor_node{ // Node for the internal queue
+    char sensor[4*STR]; // 4*STR because we need to store the sensor id, key, min and max
+    struct sensor_node *next;
+}sensor_node;
+
+typedef struct internal_queue{
+  alert_node *alert_head;
+  alert_node *alert_tail;
+  sensor_node *sensor_head;
+  sensor_node *sensor_tail;
+  int size;
+} internal_queue;
 
 #endif
