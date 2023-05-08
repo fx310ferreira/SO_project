@@ -9,12 +9,17 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <semaphore.h>
 #include "functions.h"
 
 long unsigned int count;
+int t = 0, fd_sensor;
+sem_t* sensor_sem;
 
 void error(char* error_msg){
   printf("ERROR: %s\n", error_msg);
+  close(fd_sensor);
   exit(0);
 }
 
@@ -22,19 +27,55 @@ void ctrlz_handler(){
   printf("\n%lu messages printed since the start\n", count);
 }
 
+void cleanup(){
+  close(fd_sensor);
+  exit(0);
+}
 
+void ctrlc_handler(){
+  printf("\nSIGINT received\n");
+  cleanup();
+}
 
-int main (int argc, char *argv[])
-{
-  int min_value, max_value, time_intreval, reading;
-  count = 0;
+void sigpipe_handler(){
+  printf("Error writing to pipe\n");
+  cleanup();
+}
+
+void signal_setup(){
   // Changing action of SIGTSTP
   struct sigaction ctrlz;
   ctrlz.sa_handler = ctrlz_handler;
   sigfillset(&ctrlz.sa_mask);
   ctrlz.sa_flags = 0;
   sigaction(SIGTSTP, &ctrlz, NULL);
-   
+
+  // Changing action of SIGINT
+  struct sigaction ctrlc;
+  ctrlc.sa_handler = ctrlc_handler;
+  sigfillset(&ctrlc.sa_mask);
+  ctrlc.sa_flags = 0;
+  sigaction(SIGINT, &ctrlc, NULL);
+
+  // Changing action of SIGPIPE
+  struct sigaction sigpipe;
+  sigpipe.sa_handler = sigpipe_handler;
+  sigfillset(&sigpipe.sa_mask);
+  sigpipe.sa_flags = 0;
+  sigaction(SIGPIPE, &sigpipe, NULL);
+}
+
+int main (int argc, char *argv[])
+{
+  int min_value, max_value, time_intreval, reading;
+  char msg[128];
+  count = 0;
+
+  sensor_sem = sem_open("SENSOR_SEM", 0);
+  if(sensor_sem == SEM_FAILED){
+    error("Not able to create semaphore");
+  }
+
   // Parater validation
   if(argc != 6){
     error("Use format ./sensor {ID} {time interval} {key} {min_val} {max_val}\n");
@@ -55,7 +96,7 @@ int main (int argc, char *argv[])
     error("Key size must be between 3 and 32");
   }else if(!str_validator(argv[3], 1)){
     error("Key characters must be alphanumeric or '_'");
-  }
+  }   
 
   if(sscanf(argv[4], "%d", &min_value) != 1){
     error("Min value must be a integer");
@@ -68,13 +109,23 @@ int main (int argc, char *argv[])
   if(max_value < min_value){
     error("Min value must be smaller than max value");
   }
+
+  signal_setup();
+
   srand(time(NULL));
+
+  if ((fd_sensor = open("SENSOR_PIPE", O_WRONLY)) < 0) {
+    error("Error opening SENSOR_PIPE");
+  }
+
   while (1) {
+    sleep(t);
     reading = rand()%(max_value-min_value+1)+min_value;
-    //Comment and replace for final euvaluation
-    printf("%s#%s#%d\n", argv[1], argv[3], reading);
+    sprintf(msg, "%s#%s#%d", argv[1], argv[3], reading);
+    sem_wait(sensor_sem);
+    write(fd_sensor, msg, strlen(msg));
     count ++;
-    sleep(time_intreval); //! ctrlz stops the sleep 
+    t = sleep(time_intreval); //! ctrlz stops the sleep 
   } 
 
   return 0;
