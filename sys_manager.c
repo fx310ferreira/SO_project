@@ -116,7 +116,7 @@ void worker(int id){
   sprintf(message, "WORKER %d READY", id);
   logger(message);
 
-  if(read(fds[0], &n, sizeof(int)) <= 0){
+  if(read(workers_fd[0][0], &n, sizeof(int)) <= 0){
     printf("WORKER %d EXITING\n", id);
     return;
   }
@@ -133,19 +133,14 @@ void alert_watcher(){
 
 void *sensor_reader(){
   char message[256], error_msg[290];
-  fd_set read_fd;
   int n;
 
   logger("THREAD SENSOR_READER CREATED");   
 
   while (1){
-    FD_ZERO(&read_fd);
-    FD_SET(fd_sensor, &read_fd);
-
-    if(select(fd_sensor+1, &read_fd, NULL, NULL, NULL)<0){
-      error("selecting SENSOR_PIPE");
+    if((n = read(fd_sensor, &message, sizeof(message))) <= 0){
+      pthread_exit(NULL);
     }
-    n = read(fd_sensor, &message, sizeof(message));
     sem_post(sensor_sem);
     message[n] = '\0';
     pthread_mutex_lock(&queue_mutex);
@@ -173,12 +168,9 @@ void *console_reader(){
   logger("THREAD CONSOLE_READER CREATED");
 
   while (1){
-    FD_ZERO(&read_fd);
-    FD_SET(fd_console, &read_fd);
-    if(select(fd_console+1, &read_fd, NULL, NULL, NULL)<0){
-      error("selecting CONSOLE_PIPE");
+    if(read(fd_console, &command, sizeof(command_t)) <= 0){
+      pthread_exit(NULL);
     }
-    read(fd_console, &command, sizeof(command_t));
     sem_post(console_sem);
     sprintf(message, "COMMAND RECEIVED: %s ID: %s KEY: %s", command.cmd, command.alert.id, command.alert.key);
     pthread_mutex_lock(&queue_mutex);
@@ -209,14 +201,14 @@ void *dispatcher(){
   int n = 1;
   while (1){
     sleep(1);
-    write(fds[1], &n, sizeof(int));
+    write(workers_fd[0][1], &n, sizeof(int));
     pthread_mutex_lock(&queue_mutex);
     if(queue->size > 0){
       if(pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL))
         error("setting cancel state");
       if(queue->alert_head != NULL){
         #ifdef DEBUG
-        printf("ALERT: %s\n", queue->alert_head);
+        printf("ALERT: %s\n", queue->alert_head->command.cmd);
         #endif
         job.type = 0;
         memcpy(&job.command, &queue->alert_head->command, sizeof(command_t)); //* check if this is working
