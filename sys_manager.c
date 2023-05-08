@@ -2,6 +2,7 @@
   Frederico Ferreira 2021217116
   Nuno Carvalho do Nascimento 2020219249
 */
+#define DEBUG 0
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,14 +27,15 @@ int config[5];
 FILE *config_file;
 FILE *log_file;
 pthread_t sensor_reader_t, console_reader_t, dispatcher_t;
-sem_t *log_sem, *shm_sem;
+sem_t *log_sem, *shm_sem, *worker_sem, *sensor_sem, *console_sem;
 shared_memory *shm;
 int fd_sensor, fd_console;
 int shmid = 0, parent_pid;
 internal_queue *queue;
 pthread_mutex_t queue_mutex;
-pthread_cond_t queue_cond;
-int (*workers_fd)[2];
+pthread_cond_t queue_empty_cond, queue_full_cond;
+int **workers_fd;
+int fds[2];
 
 /* Function that is responsible for writing logs */
 void logger(char *message){
@@ -45,13 +47,11 @@ void logger(char *message){
   fflush(log_file);
   sem_post(log_sem);
 }
-
-  //! SHOULD I USE pthread_kill(****, SIGKILL)
-  //! should i close the unamed pipes
-  //! should i kill every process?
+// ! change the code so that sensors close when home iot closes
+// ! close the unamed pipes
 /* Function to handle errors*/
 void error(char *error_msg){
-  // add logger to print error message
+  int i;
   printf("ERROR: %s\n", error_msg);
 
   logger("HOME_IOT SIMULATOR FREEING RESOURCES");
@@ -66,11 +66,19 @@ void error(char *error_msg){
   pthread_join(sensor_reader_t, NULL);
   pthread_join(console_reader_t, NULL);
   pthread_join(dispatcher_t, NULL);
+
+  // for(i = 0; i < config[1]; i++){
+  //   close(workers_fd[i][0]);
+  //   close(workers_fd[i][1]);
+  // }
+  // free(workers_fd);
+
+  logger("HOME_IOT waiting for workers to finish");
+  for (i = 0; i < config[1]; i++) {
+    wait(NULL);
+  }
+
   if(shmid != 0){
-    if(shm != NULL){
-      free(shm->alerts);
-      free(shm->sensors);
-    }
     shmdt(shm);
     shmctl(shmid, IPC_RMID, NULL);
     sem_close(shm_sem);
@@ -84,24 +92,36 @@ void error(char *error_msg){
   fclose(log_file);
   sem_close(log_sem);
   sem_unlink("LOG_SEM");
+  sem_close(worker_sem);
+  sem_unlink("WORKER_SEM");
+  sem_close(sensor_sem);
+  sem_unlink("SENSOR_SEM");
+  sem_close(console_sem);
+  sem_unlink("CONSOLE_SEM");
   pthread_mutex_destroy(&queue_mutex);
   clear_queue(queue);
   free(queue);
-  pthread_cond_destroy(&queue_cond);
+  pthread_cond_destroy(&queue_full_cond);
+  pthread_cond_destroy(&queue_empty_cond);
   exit(1);
 }
-
 
 //! fazer com que os worker parem de trabalhar usar
 //! fechar a pipe para eles pararem
 void worker(int id){
   char message[256];
+  int n = 1;
+  worker_job job;
+
   sprintf(message, "WORKER %d READY", id);
   logger(message);
-  if(write(workers_fd[id][1], "helo", sizeof("helo"))<0){ //! :O this is magic how does this happen
-    printf("ERROR WRITING TO PIPE %d\n", id);
+
+  if(read(fds[0], &n, sizeof(int)) <= 0){
+    printf("WORKER %d EXITING\n", id);
+    return;
   }
-  sleep(5);
+  printf("WORKER %d RECEIVED %d\n", id, n);
+
   sprintf(message, "WORKER %d EXITING", id);
   logger(message);
 }
@@ -126,11 +146,15 @@ void *sensor_reader(){
       error("selecting SENSOR_PIPE");
     }
     n = read(fd_sensor, &message, sizeof(message));
+    sem_post(sensor_sem);
     message[n] = '\0';
     pthread_mutex_lock(&queue_mutex);
+    #ifdef DEBUG
+    printf("MESSAGE RECEIVED: %s\n", message);
+    #endif
     if(queue->size < config[0]){
       insert_node(queue, &message, 1);
-      pthread_cond_signal(&queue_cond);
+      pthread_cond_signal(&queue_empty_cond);
     }
     else{
       sprintf(error_msg, "INTERNAL_QUEUE FULL: %s", message);
@@ -155,36 +179,63 @@ void *console_reader(){
       error("selecting CONSOLE_PIPE");
     }
     read(fd_console, &command, sizeof(command_t));
+    sem_post(console_sem);
     sprintf(message, "COMMAND RECEIVED: %s ID: %s KEY: %s", command.cmd, command.alert.id, command.alert.key);
     pthread_mutex_lock(&queue_mutex);
     if(queue->size < config[0]){
       insert_node(queue, &command, 0);
-      pthread_cond_signal(&queue_cond);
+      pthread_cond_signal(&queue_empty_cond);
+    }else{
+      while (queue->size >= config[0]){
+        #ifdef DEBUG
+        printf("QUEUE FULL\n");
+        #endif
+        pthread_cond_wait(&queue_full_cond, &queue_mutex);
+      }
+      #ifdef DEBUG
+      printf("QUEUE NOT FULL inserting\n");
+      #endif
+      insert_node(queue, &command, 0);
+      pthread_cond_signal(&queue_empty_cond);
     }
-    else
-      logger(message); //! change to add to quque and write when queue is full
     pthread_mutex_unlock(&queue_mutex);
   }
   pthread_exit(NULL);
 }
 
-//! coment pthread cond wait and run why doe shis happen?
 void *dispatcher(){
+  worker_job job;
   logger("THREAD DISPATCHER CREATED");
+  int n = 1;
   while (1){
+    sleep(1);
+    write(fds[1], &n, sizeof(int));
     pthread_mutex_lock(&queue_mutex);
     if(queue->size > 0){
-      pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+      if(pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL))
+        error("setting cancel state");
       if(queue->alert_head != NULL){
+        #ifdef DEBUG
         printf("ALERT: %s\n", queue->alert_head);
+        #endif
+        job.type = 0;
+        memcpy(&job.command, &queue->alert_head->command, sizeof(command_t)); //* check if this is working
         remove_node(queue, 0);
       }else{
+        #ifdef DEBUG
         printf("SENSOR: %s\n", queue->sensor_head->sensor);
+        #endif
+        job.type = 1;
+        strcpy(job.sensor, queue->sensor_head->sensor);
         remove_node(queue, 1);
       }
+      pthread_cond_signal(&queue_full_cond);
       pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     }else{
-      pthread_cond_wait(&queue_cond, &queue_mutex);
+      #ifdef DEBUG
+      printf("QUEUE EMPTY\n");
+      #endif
+      pthread_cond_wait(&queue_empty_cond, &queue_mutex);
     }
     pthread_mutex_unlock(&queue_mutex);
   }
@@ -233,14 +284,33 @@ void pipes_initializer(){
 void sync_creator(){
   int i;
 
-  /* Creates the mutex for the internal queue */
+  /* Creates the sem for the internal queue */
   shm_sem = sem_open("SHM_SEM", O_CREAT | O_EXCL, 0700, 1);
   if(shm_sem == SEM_FAILED){
     error("Not able to create semaphore");
   }
 
+    /* Creates the sem for the workers */
+  worker_sem = sem_open("WORKER_SEM", O_CREAT | O_EXCL, 0700, 0);
+  if(worker_sem == SEM_FAILED){
+    error("Not able to create semaphore");
+  }
+
+  sensor_sem = sem_open("SENSOR_SEM", O_CREAT | O_EXCL, 0700, 1);
+  if(sensor_sem == SEM_FAILED){
+    error("Not able to create semaphore");
+  }
+
+  console_sem = sem_open("CONSOLE_SEM", O_CREAT | O_EXCL, 0700, 1);
+  if(console_sem == SEM_FAILED){
+    error("Not able to create semaphore");
+  }
+
   /* Allocates memory for workers semaphores */
-  workers_fd = malloc(sizeof(int[config[1]][2]));
+  workers_fd = malloc(sizeof(int*)*config[1]);
+  for(i = 0; i < config[1]; i++){
+    workers_fd[i] = malloc(sizeof(int)*2);
+  }
 
   /* Creates the semaphore for the workers */
   for(i = 0; i < config[1]; i++){
@@ -249,13 +319,20 @@ void sync_creator(){
     }
   }
 
+  pipe(fds);
+
   /* Creates the mutex for the internal queue */
   if(pthread_mutex_init(&queue_mutex, NULL) != 0){
     error("Not able to create mutex");
   }
 
   /* Creates the condition variable */
-  if(pthread_cond_init(&queue_cond, NULL) != 0){
+  if(pthread_cond_init(&queue_empty_cond, NULL) != 0){
+    error("Not able to create condition variable");
+  }
+
+    /* Creates the condition variable */
+  if(pthread_cond_init(&queue_full_cond, NULL) != 0){
     error("Not able to create condition variable");
   }
 }
@@ -277,6 +354,12 @@ void ctrlc_handler(){
     pthread_join(console_reader_t, NULL);
     pthread_join(dispatcher_t, NULL);
     
+    // for(i = 0; i < config[1]; i++){
+    //   close(workers_fd[i][0]);
+    //   close(workers_fd[i][1]);
+    // }
+    // free(workers_fd);
+
     logger("HOME_IOT waiting for workers to finish");
     for (i = 0; i < config[1]; i++) {
       wait(NULL);
@@ -297,11 +380,18 @@ void ctrlc_handler(){
     fclose(log_file);
     sem_close(log_sem);
     sem_unlink("LOG_SEM");
+    sem_close(worker_sem);
+    sem_unlink("WORKER_SEM");
+    sem_close(sensor_sem);
+    sem_unlink("SENSOR_SEM");
+    sem_close(console_sem);
+    sem_unlink("CONSOLE_SEM");
     pthread_mutex_destroy(&queue_mutex);
     print_queue(queue);
     clear_queue(queue);
     free(queue);
-    pthread_cond_destroy(&queue_cond);
+    pthread_cond_destroy(&queue_full_cond);
+    pthread_cond_destroy(&queue_empty_cond);
     exit(0);
   }
 }
@@ -327,8 +417,13 @@ void log_initializer(){
 int main (int argc, char *argv[]){
   int i, pid;
 
+  #ifdef DEBUG
   sem_unlink("LOG_SEM");
   sem_unlink("SHM_SEM");
+  sem_unlink("WORKER_SEM");
+  sem_unlink("SENSOR_SEM");
+  sem_unlink("CONSOLE_SEM");
+  #endif
 
   // Initialize the signal handler
   struct sigaction ctrlc;
@@ -355,16 +450,18 @@ int main (int argc, char *argv[]){
   queue = create_queue();
 
   /* Creates the shared memory */
-  shmid = shmget(IPC_PRIVATE, sizeof(shared_memory)+sizeof(alert)*config[4] +sizeof(sensor)*config[3], IPC_CREAT | 0777); //! put headers
+  shmid = shmget(IPC_PRIVATE, sizeof(shared_memory)+sizeof(alert)*config[4] + sizeof(char)*STR*config[3] + sizeof(key)*config[2]+sizeof(int)*config[1], IPC_CREAT | 0777); //! put headers
   if(shmid == -1){
     error("Not able to create shared memory");
   }
   shm = (shared_memory*)shmat(shmid, NULL, 0);
 
-  //Pointing to sahred memory
+  //Pointing to shared memory
   shm->alerts = (alert*)(((void*)shm) + sizeof(shared_memory));
-  shm->sensors = (sensor*)(((void*)shm->alerts) + sizeof(alert)*config[4]); //! change this
-  
+  shm->keys = (key*)(((void*)shm->alerts) + sizeof(alert)*config[4]); //! change this
+  shm->workers = (int*)(((void*)shm->keys) + sizeof(key)*config[2]); 
+  // shm->sensors = (char**)(((void*)shm->keys) + sizeof(key)*config[2]);
+
   pipes_initializer();
 
   //Create workers
@@ -377,10 +474,10 @@ int main (int argc, char *argv[]){
       sigset_t mask;
       sigfillset(&mask);
       sigprocmask(SIG_SETMASK, &mask, NULL);
-      if(i == 0){
+      if(i == config[1]){
         alert_watcher();
       }else{
-        worker(i-1);
+        worker(i);  
       }
       exit(0);
     }
