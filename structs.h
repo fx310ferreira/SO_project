@@ -29,6 +29,11 @@ typedef struct sensor{
   char id[STR];
 }sensor;
 
+typedef struct alert_job{
+  char key[STR];
+  int value;
+}alert_job;
+
 typedef struct shared_memory{
     int num_sensors;
     int num_alerts;
@@ -37,6 +42,7 @@ typedef struct shared_memory{
     key *keys;
     sensor *sensors;
     int *workers;
+    alert_job new_alert;
 }shared_memory;
 
 typedef struct command_t{

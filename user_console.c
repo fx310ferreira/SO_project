@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <semaphore.h>
 #include <sys/msg.h>
 #include <sys/types.h>
@@ -18,10 +19,13 @@
 
 int fd_console;
 int console_id, msgqid;
-sem_t *sem;
+sem_t *sem, *alert_sem;
+pthread_t alert_thread;
 
 void cleanup(){
   close(fd_console);
+  pthread_kill(alert_thread, SIGUSR1);
+  pthread_join(alert_thread, NULL);
   exit(0);
 }
 
@@ -34,9 +38,11 @@ void send_comand(command_t* command, char* cmd){
   msg_queue_msg msg;
   strcpy(command->cmd, cmd);
   write(fd_console, command, sizeof(command_t));
+  printf("WATING FOR A RESPONSE\n");
   sem_wait(sem);
   msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 0);
-  printf("\n--------------------------\n%s\n", msg.msg);
+  printf("RESPONSE RECEIVED\n");
+  printf("%s\n", msg.msg);
 }
 
 void add_alert(command_t* command, char* cmd){
@@ -131,6 +137,26 @@ void signal_setup(){
   sigaction(SIGPIPE, &sigpipe, NULL);
 }
 
+void close_handler(){
+  pthread_exit(NULL);
+}
+
+void* alert_reader(){
+  // Changing action of SIGINT
+  struct sigaction close_signal;
+  close_signal.sa_handler = close_handler;
+  sigfillset(&close_signal.sa_mask);
+  close_signal.sa_flags = 0;
+  sigaction(SIGUSR1, &close_signal, NULL);
+  msg_queue_msg msg;
+
+  while(1){
+    sem_wait(alert_sem);
+    msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 0);
+    printf("\n%s\n", msg.msg);
+  }
+}
+
 int main (int argc, char *argv[]){
   char cmd[33];
   command_t command;
@@ -159,6 +185,13 @@ int main (int argc, char *argv[]){
     error("Error opening MSG_QUEUE_SEM");
   }
 
+  if ((alert_sem = sem_open("ALERT_SEM", 0)) == SEM_FAILED) {
+    error("Error opening ALERT_SEM");
+  }
+  
+  if(pthread_create(&alert_thread, NULL, alert_reader, NULL)<0){
+    error("Error creating alert thread");
+  }
   while (strcmp("exit", cmd) != 0) {
     scanf("%s", cmd);
     if(strcmp("stats", cmd) == 0)
