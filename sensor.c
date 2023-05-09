@@ -23,6 +23,7 @@ void error(char* error_msg){
 
 void ctrlz_handler(){
   printf("\n%lu messages printed since the start\n", count);
+  sleep(t);
 }
 
 void cleanup(){
@@ -112,13 +113,11 @@ int main (int argc, char *argv[])
   }
 
   while (1) {
-    sleep(t);
     reading = rand()%(max_value-min_value+1)+min_value;
     sprintf(msg, "%s#%s#%d", argv[1], argv[3], reading);
     write(fd_sensor, msg, strlen(msg)+1);
     count ++;
     t = sleep(time_intreval); //! ctrlz stops the sleep 
   } 
-
   return 0;
 }

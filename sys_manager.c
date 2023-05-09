@@ -13,9 +13,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <string.h>
 #include <sys/shm.h>
 #include <sys/ipc.h>
 #include <sys/types.h>
+#include <sys/msg.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/select.h>
@@ -27,7 +29,7 @@ int config[5];
 FILE *config_file;
 FILE *log_file;
 pthread_t sensor_reader_t, console_reader_t, dispatcher_t;
-sem_t *log_sem, *worker_sem, *shm_worker_sem, *shm_key_sem, *shm_sensor_sem, *shm_alert_sem;
+sem_t *log_sem, *worker_sem, *shm_worker_sem, *shm_key_sem, *shm_sensor_sem, *shm_alert_sem, *msg_queue_sem;
 shared_memory *shm;
 int fd_sensor, fd_console;
 int shmid = 0, parent_pid;
@@ -36,8 +38,7 @@ pthread_mutex_t queue_mutex;
 pthread_cond_t queue_empty_cond, queue_full_cond;
 int (*workers_fd)[2];
 int msgqid;
-
-//! um semaforo para cada parte da shm??
+int leave = 0;
 
 /* Function that is responsible for writing logs */
 void logger(char *message){
@@ -88,11 +89,13 @@ void error(char *error_msg){
   sem_unlink("SHM_SENSOR_SEM");
   sem_close(shm_key_sem);
   sem_unlink("SHM_KEY_SEM");
-
   close(fd_sensor);
-  close(fd_console);
   unlink("SENSOR_PIPE");
+  close(fd_console);
   unlink("CONSOLE_PIPE");
+  sem_close(msg_queue_sem);
+  sem_unlink("MSG_QUEUE_SEM");
+  msgctl(msgqid, IPC_RMID, NULL);
   logger("HOME_IOT SIMULATOR CLOSING");
   fclose(log_file);
   sem_close(log_sem);
@@ -109,24 +112,28 @@ void error(char *error_msg){
 
 void worker(int id){
   char message[256];
+  msg_queue_msg msg;
   worker_job job;
   char sens_id[STR], key[STR];
   int num;
   int new_key, new_sensor, key_i;
   int i;
-  close(workers_fd[id][1]); // ! HELPPPPPPPPPPPPPPPPPPPP
+  close(workers_fd[id][1]);
 
   sprintf(message, "WORKER %d READY", id);
   logger(message);
-  // while(1){
+  while(!leave){
     sem_wait(shm_worker_sem);
     shm->workers[id] = 1;
     sem_post(shm_worker_sem);
     sem_post(worker_sem);
     if(read(workers_fd[id][0], &job, sizeof(worker_job)) <= 0){
-      printf("WORKER %d EXITING\n", id);
+      #ifdef DEBUG
+      printf("\nWORKER %d EXITING\n", id);
+      #endif
       return;
     }
+    sleep(3);
     if(job.type){ // 1 = sensor
       sscanf(job.sensor, "%[^#]#%[^#]#%d", sens_id, key, &num);
       new_key = new_sensor = 1;
@@ -139,8 +146,7 @@ void worker(int id){
         sprintf(message, "WORKER %d: MAX NUMBER OF SENSORS REACHED", id);
         logger(message);
         sem_post(shm_sensor_sem);
-        // continue; //! change for continue
-        return;
+        continue;
       }
       sem_post(shm_sensor_sem);
 
@@ -161,10 +167,8 @@ void worker(int id){
         sprintf(message, "WORKER %d: MAX NUMBER OF KEYS REACHED", id);
         logger(message);
         sem_post(shm_key_sem);
-        // continue; //! change for continue
-        return;
+        continue;
       }else{
-        printf("GOT HERE: %d\n", key_i);
         shm->keys[key_i].last = num;
         shm->keys[key_i].sum += num;
         shm->keys[key_i].count++;
@@ -173,9 +177,99 @@ void worker(int id){
       }
       sem_post(shm_key_sem);
     }else{ // 0 = console
-
+      msg.msgtype = job.command.console_id;
+      if(strcmp(job.command.cmd, "stats")==0){
+        strcpy(msg.msg, "Key\tLast\tMin\tMax\tAvg\tCount\n");
+        sem_wait(shm_key_sem);
+        for(i = 0; i < shm->num_keys; i++){
+          sprintf(message, "%s\t%d\t%d\t%d\t%.2f\t%d\n", shm->keys[i].key, shm->keys[i].last, shm->keys[i].min, shm->keys[i].max, shm->keys[i].sum/(float)shm->keys[i].count, shm->keys[i].count);
+          strcat(msg.msg, message);
+        }
+        sem_post(shm_key_sem);
+        msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
+        sem_post(msg_queue_sem);
+      }else if(strcmp(job.command.cmd, "sensors")==0){
+        strcpy(msg.msg, "ID\n");
+        sem_wait(shm_sensor_sem);
+        for(i = 0; i < shm->num_sensors; i++){
+          sprintf(message, "%s\n", shm->sensors[i].id);
+          strcat(msg.msg, message);
+        }
+        sem_post(shm_sensor_sem);
+        msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
+        sem_post(msg_queue_sem);
+      }else if(strcmp(job.command.cmd, "list_alerts")==0){
+        strcpy(msg.msg, "ID\tKey\tMIN\tMAX\n");
+        sem_wait(shm_alert_sem);
+        for(i = 0; i < shm->num_alerts; i++){
+          sprintf(message, "%s\t%s\t%d\t%d\n", shm->alerts[i].id, shm->alerts[i].key, shm->alerts[i].min, shm->alerts[i].max);
+          strcat(msg.msg, message);
+        }
+        sem_post(shm_alert_sem);
+        msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
+        sem_post(msg_queue_sem);
+      }else if(strcmp(job.command.cmd, "reset")==0){
+        sem_wait(shm_key_sem);
+        memset(shm->keys, 0, sizeof(key)*config[2]);
+        shm->num_keys = 0;
+        sem_post(shm_key_sem);
+        sem_wait(shm_sensor_sem);
+        memset(shm->sensors, 0, sizeof(sensor)*config[3]);
+        shm->num_sensors = 0;
+        sem_post(shm_sensor_sem);
+        sem_wait(shm_alert_sem);
+        memset(shm->alerts, 0, sizeof(alert)*config[4]);
+        shm->num_alerts = 0;
+        sem_post(shm_alert_sem);
+        strcpy(msg.msg, "RESET");
+        msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
+        sem_post(msg_queue_sem);
+      }else if(strcmp(job.command.cmd, "remove_alert")==0){
+        int removed = 0;
+        sem_wait(shm_alert_sem);
+        for (int i = 0; i < shm->num_alerts; i++){
+          if(strcmp(shm->alerts[i].id, job.command.alert.id)==0){
+            shm->alerts[i] = shm->alerts[shm->num_alerts-1];
+            shm->num_alerts--;
+            removed = 1;
+            break;
+          }
+        }
+        if(removed){
+          strcpy(msg.msg, "ALERT REMOVED");
+        }else{
+          strcpy(msg.msg, "ALERT NOT FOUND");
+        }
+        sem_post(shm_alert_sem);
+        msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
+        sem_post(msg_queue_sem);
+      }else if(strcmp(job.command.cmd, "add_alert")==0){
+        int exists = 0;
+        sem_wait(shm_alert_sem);
+        for (int i = 0; i < shm->num_alerts; i++){
+          if(strcmp(shm->alerts[i].id, job.command.alert.id)==0){
+            exists = 1;
+            break;
+          }
+        }
+        if(!exists && shm->num_alerts < config[4]){
+          shm->alerts[shm->num_alerts] = job.command.alert;
+          shm->num_alerts++;
+          strcpy(msg.msg, "ALERT ADDED");
+        }else if(exists){
+          strcpy(msg.msg, "ALERT ALREADY EXISTS");
+        }else{
+          strcpy(msg.msg, "MAX NUMBER OF ALERTS REACHED");
+        }
+        sem_post(shm_alert_sem);
+        msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
+        sem_post(msg_queue_sem);
+      }else{
+        sprintf(message, "WORKER %d: INVALID COMMAND", id);
+        logger(message);
+      }
     }
-  // }
+  }
 
   sprintf(message, "WORKER %d EXITING", id);
   logger(message);
@@ -255,12 +349,6 @@ void *dispatcher(){
   }
   
   while (1){
-    sleep(1);
-    #ifdef DEBUG
-    for(int i = 0; i < config[1]; i++){
-      printf("WORKER %d: %d\n", i, shm->workers[i]);
-    }
-    #endif
     pthread_mutex_lock(&queue_mutex);
     if(queue->size > 0){
       if(pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL))
@@ -390,6 +478,12 @@ void sync_creator(){
     error("Not able to create semaphore");
   }
 
+  /* Creates the mutex for the msg queue */
+  msg_queue_sem = sem_open("MSG_QUEUE_SEM", O_CREAT | O_EXCL, 0700, 0);
+  if(msg_queue_sem == SEM_FAILED){
+    error("Not able to create semaphore");
+  }
+
   /* Creates the mutex for the internal queue */
   if(pthread_mutex_init(&queue_mutex, NULL) != 0){
     error("Not able to create mutex");
@@ -428,7 +522,7 @@ void ctrlc_handler(){
     pthread_join(console_reader_t, NULL);
     pthread_join(dispatcher_t, NULL);
     
-    for(i = 0; i < 1; i++){
+    for(i = 0; i < config[1]; i++){
       close(workers_fd[i][0]);
       close(workers_fd[i][1]);
     }
@@ -458,12 +552,14 @@ void ctrlc_handler(){
     sem_close(shm_sensor_sem);
     sem_unlink("SHM_SENSOR_SEM");
     sem_close(shm_key_sem);
+    sem_close(msg_queue_sem);
+    unlink("MSG_QUEUE_SEM");
     sem_unlink("SHM_KEY_SEM");
-
     close(fd_sensor);
-    close(fd_console);
     unlink("SENSOR_PIPE");
+    close(fd_console);
     unlink("CONSOLE_PIPE");
+    msgctl(msgqid, IPC_RMID, NULL);
     logger("HOME_IOT SIMULATOR CLOSING");
     fclose(log_file);
     sem_close(log_sem);
@@ -478,7 +574,7 @@ void ctrlc_handler(){
     pthread_cond_destroy(&queue_empty_cond);
     exit(0);
   }else{
-    printf("I am a child\n");
+    leave = 1;
   }
 }
 
@@ -510,6 +606,7 @@ int main (int argc, char *argv[]){
   sem_unlink("SHM_SENSOR_SEM");
   sem_unlink("SHM_KEY_SEM");
   sem_unlink("WORKER_SEM");
+  sem_unlink("MSG_QUEUE_SEM");
   #endif
 
   // Initialize the signal handler
@@ -560,6 +657,7 @@ int main (int argc, char *argv[]){
       /* Blocks all signals */
       sigset_t mask;
       sigfillset(&mask);
+      sigdelset(&mask, SIGINT);
       sigprocmask(SIG_SETMASK, &mask, NULL);
       if(i == config[1]){
         alert_watcher();

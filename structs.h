@@ -69,4 +69,10 @@ typedef struct internal_queue{
   int size;
 } internal_queue;
 
+typedef struct msg_queue_msg{
+  long msgtype;
+  char msg[2057];
+}msg_queue_msg;
+
+
 #endif
