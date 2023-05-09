@@ -9,17 +9,23 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
-#include <semaphore.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <sys/msg.h>
+#include <sys/types.h>
 #include "functions.h"
 #include "structs.h"
 
 int fd_console;
-int console_id;
-sem_t* console_sem;
+int console_id, msgqid;
+sem_t *sem, *alert_sem;
+pthread_t alert_thread;
 
 void cleanup(){
   close(fd_console);
+  pthread_kill(alert_thread, SIGUSR1);
+  pthread_join(alert_thread, NULL);
   exit(0);
 }
 
@@ -29,9 +35,14 @@ void error(char* error_msg){
 }
 
 void send_comand(command_t* command, char* cmd){
+  msg_queue_msg msg;
   strcpy(command->cmd, cmd);
-  sem_wait(console_sem);
   write(fd_console, command, sizeof(command_t));
+  printf("WATING FOR A RESPONSE\n");
+  sem_wait(sem);
+  msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 0);
+  printf("RESPONSE RECEIVED\n");
+  printf("%s\n", msg.msg);
 }
 
 void add_alert(command_t* command, char* cmd){
@@ -44,22 +55,28 @@ void add_alert(command_t* command, char* cmd){
   
   if(strlen(id) < 3 || strlen(id) > 32){
     printf("ID size must be between 3 and 32\n");
+    return;
   }else if (!str_validator(id, 0)){
     printf("ID characters must be alphanumeric\n");
+    return;
   }
 
   if(strlen(key) < 3 || strlen(key) > 32){
     printf("Key size must be between 3 and 32\n");
+    return;
   }else if(!str_validator(key, 1)){
     printf("Key characters must be alphanumeric or '_'\n");
+    return;
   }
 
   if(min_value > max_value){
     printf("Min value must be lower than max value\n");
+    return;
   }
 
   if(min_value < 0 || max_value < 0){
     printf("Min and max values must be positive\n");
+    return;
   }
 
   command->alert.min = min_value;
@@ -82,8 +99,10 @@ void remove_alert(command_t* command, char* cmd){
 
   if(strlen(id) < 3 || strlen(id) > 32){
     printf("ID size must be between 3 and 32\n");
+    return;
   }else if (!str_validator(id, 0)){
     printf("ID characters must be alphanumeric\n");
+    return;
   }
   
   strcpy(command->alert.id, id);
@@ -118,6 +137,26 @@ void signal_setup(){
   sigaction(SIGPIPE, &sigpipe, NULL);
 }
 
+void close_handler(){
+  pthread_exit(NULL);
+}
+
+void* alert_reader(){
+  // Changing action of SIGINT
+  struct sigaction close_signal;
+  close_signal.sa_handler = close_handler;
+  sigfillset(&close_signal.sa_mask);
+  close_signal.sa_flags = 0;
+  sigaction(SIGUSR1, &close_signal, NULL);
+  msg_queue_msg msg;
+
+  while(1){
+    sem_wait(alert_sem);
+    msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 0);
+    printf("\n%s\n", msg.msg);
+  }
+}
+
 int main (int argc, char *argv[]){
   char cmd[33];
   command_t command;
@@ -130,19 +169,29 @@ int main (int argc, char *argv[]){
     error("Invalid console identifier\n");
   }
 
-  console_sem = sem_open("CONSOLE_SEM", 0);
-  if(console_sem == SEM_FAILED){
-    error("Not able to create semaphore");
-  }
-
   command.console_id = console_id;
 
   signal_setup();
+
+  if((msgqid = msgget(ftok("sys_manager.c", 'b'), 0)) < 0){
+    error("Not able to create message queue");
+  }
   
   if ((fd_console = open("CONSOLE_PIPE", O_WRONLY)) < 0) {
     error("Error opening CONSOLE_PIPE");
   }
 
+  if((sem = sem_open("MSG_QUEUE_SEM", 0)) == SEM_FAILED){
+    error("Error opening MSG_QUEUE_SEM");
+  }
+
+  if ((alert_sem = sem_open("ALERT_SEM", 0)) == SEM_FAILED) {
+    error("Error opening ALERT_SEM");
+  }
+  
+  if(pthread_create(&alert_thread, NULL, alert_reader, NULL)<0){
+    error("Error creating alert thread");
+  }
   while (strcmp("exit", cmd) != 0) {
     scanf("%s", cmd);
     if(strcmp("stats", cmd) == 0)

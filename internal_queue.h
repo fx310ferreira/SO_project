@@ -69,19 +69,4 @@ void clear_queue(internal_queue *queue){
     }
 }
 
-void print_queue(internal_queue *queue){
-    alert_node *aux = queue->alert_head;
-    sensor_node *aux2 = queue->sensor_head;
-    printf("Alerts:\n");
-    while(aux != NULL){
-        printf("%s %s %d %d\n",aux->command.cmd, aux->command.alert.key, aux->command.alert.min, aux->command.alert.max);
-        aux = aux->next;
-    }
-    printf("Sensors:\n");
-    while(aux2 != NULL){
-        printf("%s\n", aux2->sensor);
-        aux2 = aux2->next;
-    }
-}
-
 #endif

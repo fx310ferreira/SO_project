@@ -17,7 +17,6 @@ typedef struct alert{
 }alert;
 
 typedef struct key{
-    char id[STR];
     char key[STR];
     int min;
     int max;
@@ -26,14 +25,24 @@ typedef struct key{
     int count;
 }key;
 
+typedef struct sensor{
+  char id[STR];
+}sensor;
+
+typedef struct alert_job{
+  char key[STR];
+  int value;
+}alert_job;
+
 typedef struct shared_memory{
     int num_sensors;
     int num_alerts;
     int num_keys;
     alert *alerts;
     key *keys;
-    char *sensors[STR];
+    sensor *sensors;
     int *workers;
+    alert_job new_alert;
 }shared_memory;
 
 typedef struct command_t{
@@ -65,5 +74,11 @@ typedef struct internal_queue{
   sensor_node *sensor_tail;
   int size;
 } internal_queue;
+
+typedef struct msg_queue_msg{
+  long msgtype;
+  char msg[2057];
+}msg_queue_msg;
+
 
 #endif

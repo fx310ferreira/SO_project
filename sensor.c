@@ -10,12 +10,10 @@
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
-#include <semaphore.h>
 #include "functions.h"
 
 long unsigned int count;
 int t = 0, fd_sensor;
-sem_t* sensor_sem;
 
 void error(char* error_msg){
   printf("ERROR: %s\n", error_msg);
@@ -25,6 +23,7 @@ void error(char* error_msg){
 
 void ctrlz_handler(){
   printf("\n%lu messages printed since the start\n", count);
+  sleep(t);
 }
 
 void cleanup(){
@@ -71,11 +70,6 @@ int main (int argc, char *argv[])
   char msg[128];
   count = 0;
 
-  sensor_sem = sem_open("SENSOR_SEM", 0);
-  if(sensor_sem == SEM_FAILED){
-    error("Not able to create semaphore");
-  }
-
   // Parater validation
   if(argc != 6){
     error("Use format ./sensor {ID} {time interval} {key} {min_val} {max_val}\n");
@@ -119,14 +113,11 @@ int main (int argc, char *argv[])
   }
 
   while (1) {
-    sleep(t);
     reading = rand()%(max_value-min_value+1)+min_value;
     sprintf(msg, "%s#%s#%d", argv[1], argv[3], reading);
-    sem_wait(sensor_sem);
-    write(fd_sensor, msg, strlen(msg));
+    write(fd_sensor, msg, strlen(msg)+1);
     count ++;
     t = sleep(time_intreval); //! ctrlz stops the sleep 
   } 
-
   return 0;
 }
