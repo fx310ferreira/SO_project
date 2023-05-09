@@ -17,7 +17,6 @@ typedef struct alert{
 }alert;
 
 typedef struct key{
-    char id[STR];
     char key[STR];
     int min;
     int max;
@@ -26,13 +25,17 @@ typedef struct key{
     int count;
 }key;
 
+typedef struct sensor{
+  char id[STR];
+}sensor;
+
 typedef struct shared_memory{
     int num_sensors;
     int num_alerts;
     int num_keys;
     alert *alerts;
     key *keys;
-    char *sensors[STR];
+    sensor *sensors;
     int *workers;
 }shared_memory;
 

@@ -9,14 +9,12 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
-#include <semaphore.h>
 #include <fcntl.h>
 #include "functions.h"
 #include "structs.h"
 
 int fd_console;
 int console_id;
-sem_t* console_sem;
 
 void cleanup(){
   close(fd_console);
@@ -30,7 +28,6 @@ void error(char* error_msg){
 
 void send_comand(command_t* command, char* cmd){
   strcpy(command->cmd, cmd);
-  sem_wait(console_sem);
   write(fd_console, command, sizeof(command_t));
 }
 
@@ -128,11 +125,6 @@ int main (int argc, char *argv[]){
 
   if(sscanf(argv[1], "%d", &console_id) != 1 || console_id < 0){
     error("Invalid console identifier\n");
-  }
-
-  console_sem = sem_open("CONSOLE_SEM", 0);
-  if(console_sem == SEM_FAILED){
-    error("Not able to create semaphore");
   }
 
   command.console_id = console_id;
