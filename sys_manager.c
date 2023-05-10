@@ -151,26 +151,30 @@ void worker(int id){
   char sens_id[STR], key[STR];
   int num;
   int new_key, new_sensor, key_i;
-  int i;
+  int i, new = 0;
   close(workers_fd[id][1]);
-
-  sprintf(message, "WORKER %d READY", id);
+  sprintf(message, "WORKER%d READY", id);
   logger(message);
   while(!leave){
     sem_wait(shm_worker_sem);
     shm->workers[id] = 1;
     sem_post(shm_worker_sem);
     sem_post(worker_sem);
-    sprintf(message, "WORKER %d WAITING FOR JOB", id);
-    logger(message);
+    if(new){
+      if(job.type){
+        sprintf(message, "WORKER%d: %s DATA PROCESSING COMPLETED", id, job.sensor);
+      }else{
+        sprintf(message, "WORKER%d: %s COMMAND PROCESSING COMPLETED", id, job.command.cmd);
+      }
+      logger(message);
+    }
     if(read(workers_fd[id][0], &job, sizeof(worker_job)) <= 0){
       #ifdef DEBUG
       printf("\nWORKER %d EXITING\n", id);
       #endif
       return;
     }
-    sprintf(message, "WORKER %d RECEIVED JOB", id);
-    logger(message);
+    new = 1;
     if(job.type){ // 1 = sensor
       sscanf(job.sensor, "%[^#]#%[^#]#%d", sens_id, key, &num);
       new_key = new_sensor = 1;
@@ -307,7 +311,7 @@ void worker(int id){
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
         sem_post(msg_queue_sem);
       }else{
-        sprintf(message, "WORKER %d: INVALID COMMAND", id);
+        sprintf(message, "INVALID COMMAND ==> %s\n", job.command.cmd);
         logger(message);
       }
     }
@@ -320,6 +324,7 @@ void worker(int id){
 void alert_watcher(){
   logger("ALERT WATCHER READY");
   msg_queue_msg msg;
+  char message[256];
   while (!leave){
     if(sem_wait(alert_watcher_sem) < 0){
       #ifdef DEBUG
@@ -335,6 +340,8 @@ void alert_watcher(){
         msg.msgtype = shm->alerts->console_id;
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
         sem_post(alert_sem);
+        sprintf(message, "ALERT %s (%s %d TO %d) TRIGGERED", shm->alerts[j].id, shm->alerts[j].key, shm->alerts[j].min, shm->alerts[j].max);
+        logger(message);
         break;
       }
     }
@@ -406,6 +413,7 @@ threads ++;
 
 void *dispatcher(){
   worker_job job;
+  char message[256];
   threads ++;
   logger("THREAD DISPATCHER CREATED");
   for (int i = 0; i < config[1]; i++){
@@ -452,6 +460,11 @@ void *dispatcher(){
       if(shm->workers[i] == 1){
         write(workers_fd[i][1], &job, sizeof(worker_job));
         shm->workers[i] = 0;
+        if(job.type == 1)
+          sprintf(message, "DISPATCHER: %s SENT FOR PROCESSING ON WORKER %d", job.sensor, i);
+        else if(job.type == 0)
+          sprintf(message, "DISPATCHER: %s COMMAND SENT FOR WORKER %d",job.command.cmd, i);
+        logger(message);
         break;
       }
     }
