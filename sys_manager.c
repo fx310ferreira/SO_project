@@ -29,7 +29,7 @@ int config[5];
 FILE *config_file;
 FILE *log_file;
 pthread_t sensor_reader_t, console_reader_t, dispatcher_t;
-sem_t *log_sem, *worker_sem, *shm_worker_sem, *shm_key_sem, *shm_sensor_sem, *shm_new_alert_sem, *shm_alert_sem, *msg_queue_sem, *alert_watcher_sem, *alert_sem;
+sem_t *log_sem, *worker_sem, *shm_worker_sem, *shm_key_sem, *shm_sensor_sem, *shm_new_alert_sem, *shm_alert_sem, *alert_watcher_sem, *alert_sem;
 shared_memory *shm;
 int fd_sensor, fd_console;
 int shmid = 0, parent_pid;
@@ -114,8 +114,6 @@ void error(char *error_msg){
   sem_unlink("SHM_SENSOR_SEM");
   sem_close(shm_key_sem);
   sem_unlink("SHM_KEY_SEM");
-  sem_close(msg_queue_sem);
-  sem_unlink("MSG_QUEUE_SEM");
   sem_close(alert_sem);
   sem_unlink("ALERT_SEM");
   sem_close(alert_watcher_sem);
@@ -126,8 +124,6 @@ void error(char *error_msg){
   unlink("SENSOR_PIPE");
   close(fd_console);
   unlink("CONSOLE_PIPE");
-  sem_close(msg_queue_sem);
-  sem_unlink("MSG_QUEUE_SEM");
   msgctl(msgqid, IPC_RMID, NULL);
   logger("HOME_IOT SIMULATOR CLOSING");
   fclose(log_file);
@@ -239,7 +235,6 @@ void worker(int id){
         }
         sem_post(shm_key_sem);
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
-        sem_post(msg_queue_sem);
       }else if(strcmp(job.command.cmd, "sensors")==0){
         strcpy(msg.msg, "ID\n");
         sem_wait(shm_sensor_sem);
@@ -249,7 +244,6 @@ void worker(int id){
         }
         sem_post(shm_sensor_sem);
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
-        sem_post(msg_queue_sem);
       }else if(strcmp(job.command.cmd, "list_alerts")==0){
         strcpy(msg.msg, "ID\tKey\tMIN\tMAX\n");
         sem_wait(shm_alert_sem);
@@ -259,7 +253,6 @@ void worker(int id){
         }
         sem_post(shm_alert_sem);
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
-        sem_post(msg_queue_sem);
       }else if(strcmp(job.command.cmd, "reset")==0){
         sem_wait(shm_key_sem);
         shm->num_keys = 0;
@@ -269,7 +262,6 @@ void worker(int id){
         sem_post(shm_sensor_sem);
         strcpy(msg.msg, "RESET");
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
-        sem_post(msg_queue_sem);
       }else if(strcmp(job.command.cmd, "remove_alert")==0){
         int removed = 0;
         sem_wait(shm_alert_sem);
@@ -288,7 +280,6 @@ void worker(int id){
         }
         sem_post(shm_alert_sem);
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
-        sem_post(msg_queue_sem);
       }else if(strcmp(job.command.cmd, "add_alert")==0){
         int exists = 0;
         sem_wait(shm_alert_sem);
@@ -309,7 +300,6 @@ void worker(int id){
         }
         sem_post(shm_alert_sem);
         msgsnd(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), 0);
-        sem_post(msg_queue_sem);
       }else{
         sprintf(message, "INVALID COMMAND ==> %s\n", job.command.cmd);
         logger(message);
@@ -555,12 +545,6 @@ void sync_creator(){
     error("Not able to create worker semaphore");
   }
 
-  /* Creates the mutex for the msg queue */
-  msg_queue_sem = sem_open("MSG_QUEUE_SEM", O_CREAT | O_EXCL, 0700, 0);
-  if(msg_queue_sem == SEM_FAILED){
-    error("Not able to create msg_queue semaphore");
-  }
-
   alert_sem = sem_open("ALERT_SEM", O_CREAT | O_EXCL, 0700, 0);
   if(alert_sem == SEM_FAILED){
     error("Not able to create alert semaphore");
@@ -648,8 +632,6 @@ void ctrlc_handler(){
     sem_unlink("SHM_SENSOR_SEM");
     sem_close(shm_key_sem);
     sem_unlink("SHM_KEY_SEM");
-    sem_close(msg_queue_sem);
-    sem_unlink("MSG_QUEUE_SEM");
     sem_close(alert_sem);
     sem_unlink("ALERT_SEM");
     sem_close(alert_watcher_sem);
@@ -707,7 +689,6 @@ int main (int argc, char *argv[]){
   sem_unlink("SHM_SENSOR_SEM");
   sem_unlink("SHM_KEY_SEM");
   sem_unlink("WORKER_SEM");
-  sem_unlink("MSG_QUEUE_SEM");
   sem_unlink("ALERT_SEM");
   sem_unlink("ALERT_WATCHER_SEM");
   sem_unlink("SHM_NEW_ALERT_SEM");
