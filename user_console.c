@@ -19,7 +19,7 @@
 
 int fd_console;
 int console_id, msgqid;
-sem_t *sem, *alert_sem;
+sem_t *alert_sem;
 pthread_t alert_thread;
 
 void cleanup(){
@@ -39,7 +39,6 @@ void send_comand(command_t* command, char* cmd){
   strcpy(command->cmd, cmd);
   write(fd_console, command, sizeof(command_t));
   printf("WATING FOR A RESPONSE\n");
-  sem_wait(sem);
   msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 0);
   printf("RESPONSE RECEIVED\n");
   printf("%s\n", msg.msg);
@@ -122,6 +121,13 @@ void sigpipe_handler(){
 }
 
 void signal_setup(){
+  sigset_t mask;
+  sigfillset(&mask);
+  sigdelset(&mask, SIGINT);
+  sigdelset(&mask, SIGPIPE);
+  sigdelset(&mask, SIGUSR1);
+  sigprocmask(SIG_SETMASK, &mask, NULL);
+  
   // Changing action of SIGINT
   struct sigaction ctrlc;
   ctrlc.sa_handler = ctrlc_handler;
@@ -181,10 +187,6 @@ int main (int argc, char *argv[]){
     error("Error opening CONSOLE_PIPE");
   }
 
-  if((sem = sem_open("MSG_QUEUE_SEM", 0)) == SEM_FAILED){
-    error("Error opening MSG_QUEUE_SEM");
-  }
-
   if ((alert_sem = sem_open("ALERT_SEM", 0)) == SEM_FAILED) {
     error("Error opening ALERT_SEM");
   }
@@ -192,6 +194,7 @@ int main (int argc, char *argv[]){
   if(pthread_create(&alert_thread, NULL, alert_reader, NULL)<0){
     error("Error creating alert thread");
   }
+
   while (strcmp("exit", cmd) != 0) {
     scanf("%s", cmd);
     if(strcmp("stats", cmd) == 0)
