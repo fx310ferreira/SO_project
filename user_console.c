@@ -23,7 +23,6 @@ sem_t *alert_sem;
 pthread_t alert_thread;
 
 void cleanup(){
-  close(fd_console);
   pthread_kill(alert_thread, SIGUSR1);
   pthread_join(alert_thread, NULL);
   exit(0);
@@ -39,7 +38,7 @@ void send_comand(command_t* command, char* cmd){
   strcpy(command->cmd, cmd);
   write(fd_console, command, sizeof(command_t));
   printf("WATING FOR A RESPONSE\n");
-  msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 0);
+  msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 1);
   printf("RESPONSE RECEIVED\n");
   printf("%s\n", msg.msg);
 }
@@ -158,7 +157,7 @@ void* alert_reader(){
 
   while(1){
     sem_wait(alert_sem);
-    msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 0);
+    msgrcv(msgqid, &msg, sizeof(msg_queue_msg)-sizeof(long), console_id, 1);
     printf("\n%s\n", msg.msg);
   }
 }
