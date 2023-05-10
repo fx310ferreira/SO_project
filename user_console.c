@@ -122,6 +122,13 @@ void sigpipe_handler(){
 }
 
 void signal_setup(){
+  sigset_t mask;
+  sigfillset(&mask);
+  sigdelset(&mask, SIGINT);
+  sigdelset(&mask, SIGPIPE);
+  sigdelset(&mask, SIGUSR1);
+  sigprocmask(SIG_SETMASK, &mask, NULL);
+  
   // Changing action of SIGINT
   struct sigaction ctrlc;
   ctrlc.sa_handler = ctrlc_handler;

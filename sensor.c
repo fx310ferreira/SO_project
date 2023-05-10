@@ -42,6 +42,14 @@ void sigpipe_handler(){
 }
 
 void signal_setup(){
+
+  sigset_t mask;
+  sigfillset(&mask);
+  sigdelset(&mask, SIGINT);
+  sigdelset(&mask, SIGPIPE);
+  sigdelset(&mask, SIGTSTP);
+  sigprocmask(SIG_SETMASK, &mask, NULL);
+
   // Changing action of SIGTSTP
   struct sigaction ctrlz;
   ctrlz.sa_handler = ctrlz_handler;

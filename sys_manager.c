@@ -739,6 +739,11 @@ int main (int argc, char *argv[]){
 
   pipes_initializer();
 
+  sigset_t mask;
+  sigfillset(&mask);
+  sigdelset(&mask, SIGINT);
+  sigprocmask(SIG_SETMASK, &mask, NULL);
+
   //Create workers
   for (i = 0; i < config[1]+1; i++) {
     pid = fork();
@@ -746,10 +751,6 @@ int main (int argc, char *argv[]){
       error("Not able to create workers");
     if(pid == 0){
       /* Blocks all signals */
-      sigset_t mask;
-      sigfillset(&mask);
-      sigdelset(&mask, SIGINT);
-      sigprocmask(SIG_SETMASK, &mask, NULL);
       if(i == config[1]){
         alert_watcher();
       }else{
