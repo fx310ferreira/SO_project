@@ -123,7 +123,7 @@ int main (int argc, char *argv[])
   while (1) {
     reading = rand()%(max_value-min_value+1)+min_value;
     sprintf(msg, "%s#%s#%d", argv[1], argv[3], reading);
-    write(fd_sensor, msg, strlen(msg)+1);
+    write(fd_sensor, msg, sizeof(msg));
     count ++;
     t = sleep(time_intreval); //! ctrlz stops the sleep 
   } 

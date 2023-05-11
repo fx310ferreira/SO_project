@@ -189,7 +189,7 @@ int main (int argc, char *argv[]){
   if ((alert_sem = sem_open("ALERT_SEM", 0)) == SEM_FAILED) {
     error("Error opening ALERT_SEM");
   }
-  
+
   if(pthread_create(&alert_thread, NULL, alert_reader, NULL)<0){
     error("Error creating alert thread");
   }

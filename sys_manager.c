@@ -341,7 +341,7 @@ void alert_watcher(){
 }
 
 void *sensor_reader(){
-  char message[256], error_msg[290];
+  char message[128], error_msg[256];
   int n;
   threads ++;
   logger("THREAD SENSOR_READER CREATED");   
@@ -350,21 +350,20 @@ void *sensor_reader(){
     if((n = read(fd_sensor, &message, sizeof(message))) <= 0){
       pthread_exit(NULL);
     }
-    message[n] = '\0';
-    pthread_mutex_lock(&queue_mutex);
-    #ifdef DEBUG
-    printf("MESSAGE RECEIVED: %s\n", message);
-    #endif
-    if(queue->size < config[0]){
-      insert_node(queue, &message, 1);
-      pthread_cond_signal(&queue_empty_cond);
-    }
-    else{
+      pthread_mutex_lock(&queue_mutex);
+      #ifdef DEBUG
+      printf("MESSAGE RECEIVED: %s\n", message);
+      #endif
+      if(queue->size < config[0]){
+        insert_node(queue, &message, 1);
+        pthread_cond_signal(&queue_empty_cond);
+      }
+      else{
       sprintf(error_msg, "INTERNAL_QUEUE FULL: %s", message);
       logger(error_msg);
     }
     pthread_mutex_unlock(&queue_mutex);
-  }
+    }
   pthread_exit(NULL);
 } 
 
@@ -719,15 +718,18 @@ int main (int argc, char *argv[]){
   queue = create_queue();
 
   /* Creates the shared memory */
-  shmid = shmget(IPC_PRIVATE, sizeof(shared_memory)+sizeof(alert)*config[4] + sizeof(char)*STR*config[3] + sizeof(key)*config[2]+sizeof(int)*config[1], IPC_CREAT | 0777); //! put headers
+  shmid = shmget(IPC_PRIVATE, sizeof(shared_memory)+sizeof(alert)*config[4] + sizeof(char)*STR*config[3] + sizeof(key)*config[2]+sizeof(int)*config[1], IPC_CREAT | 0777);
   if(shmid == -1){
     error("Not able to create shared memory");
   }
   shm = (shared_memory*)shmat(shmid, NULL, 0);
 
   //Pointing to shared memory
+  shm->num_alerts = 0;
+  shm->num_keys = 0;
+  shm->num_sensors = 0;
   shm->alerts = (alert*)(((void*)shm) + sizeof(shared_memory));
-  shm->keys = (key*)(((void*)shm->alerts) + sizeof(alert)*config[4]); //! change this
+  shm->keys = (key*)(((void*)shm->alerts) + sizeof(alert)*config[4]);
   shm->workers = (int*)(((void*)shm->keys) + sizeof(key)*config[2]); 
   shm->sensors = (sensor*)(((void*)shm->keys) + sizeof(int)*config[1]);
 
